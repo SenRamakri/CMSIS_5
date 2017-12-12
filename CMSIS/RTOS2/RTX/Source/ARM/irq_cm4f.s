@@ -23,12 +23,23 @@
 ; * -----------------------------------------------------------------------------
 ; */
 
-
-I_T_RUN_OFS     EQU      20                     ; osRtxInfo.thread.run offset
-TCB_SP_OFS      EQU      56                     ; TCB.SP offset
-TCB_SF_OFS      EQU      34                     ; TCB.stack_frame offset
-
-
+I_T_RUN_OFS                     EQU      20                     ; osRtxInfo.thread.run offset
+I_T_CB_OFS                      EQU      164                    ; osRtxInfo.error_handler_callback offset
+TCB_SP_OFS                      EQU      56                     ; TCB.SP offset
+TCB_SF_OFS                      EQU      34                     ; TCB.stack_frame offset
+SHCSR_ADDR                      EQU      0xE000ED24             ; Address of System Handler and Control Status Register 
+CFSR_ADDR                       EQU      0xE000ED28             ; Address of Configurable Fault Status Register 
+HFSR_ADDR                       EQU      0xE000ED2C             ; Address of Hard Fault Status Register
+DFSR_ADDR                       EQU      0xE000ED30             ; Address of Debug Fault Status Register
+AFSR_ADDR                       EQU      0xE000ED3C             ; Address of Auxiliary Fault Status Register
+MMFAR_ADDR                      EQU      0xE000ED34             ; Address of MemManage Fault Address Register
+BFAR_ADDR                       EQU      0xE000ED38             ; Address of Bus Fault Status Register
+FAULT_TYPE_HARD_FAULT           EQU      0x10
+FAULT_TYPE_MEMMANAGE_FAULT      EQU      0x20
+FAULT_TYPE_BUS_FAULT            EQU      0x30
+FAULT_TYPE_USAGE_FAULT          EQU      0x40
+FAULT_TYPE_DEBUG_MONITOR        EQU      0x50    
+    
                 PRESERVE8
                 THUMB
 
@@ -39,6 +50,114 @@ irqRtxLib       DCB      0                      ; Non weak library reference
 
 
                 AREA     |.text|, CODE, READONLY
+
+HardFault_Handler\
+                PROC
+                EXPORT   HardFault_Handler
+                LDR      R12,=FAULT_TYPE_HARD_FAULT                   
+                B        Fault_Handler
+                ENDP                
+
+MemManage_Handler\
+                PROC
+                EXPORT   MemManage_Handler
+                LDR      R12,=FAULT_TYPE_MEMMANAGE_FAULT      
+                B        Fault_Handler
+                ENDP                
+                
+BusFault_Handler\
+                PROC
+                EXPORT   BusFault_Handler
+                LDR      R12,=FAULT_TYPE_BUS_FAULT                          
+                B        Fault_Handler
+                ENDP
+
+UsageFault_Handler\
+                PROC
+                EXPORT   UsageFault_Handler
+                LDR      R12,=FAULT_TYPE_USAGE_FAULT                          
+                B        Fault_Handler 
+                ENDP
+                    
+Fault_Handler\
+                PROC
+                EXPORT   Fault_Handler
+                IMPORT   osRtxInfo
+                IMPORT   osRtxFaultContext
+                                
+                TST      LR,#0x4                  ; Check EXC_RETURN for bit 2
+                ITE      EQ
+                MRSEQ    R0,MSP
+                MRSNE    R0,PSP
+                
+                LDR      R1,=osRtxFaultContext     
+                LDR      R2,[R0]                  ; Capture R0
+                STR      R2,[R1],#4
+                LDR      R2,[R0,#4]               ; Capture R1
+                STR      R2,[R1],#4
+                LDR      R2,[R0,#8]               ; Capture R2
+                STR      R2,[R1],#4
+                LDR      R2,[R0,#12]              ; Capture R3
+                STR      R2,[R1],#4
+                STMIA    R1!,{R4-R11}             ; Capture R4..R11
+                LDR      R2,[R0,#16]              ; Capture R12
+                STR      R2,[R1],#4
+                ADD      R1,#4                    ; We will capture SP later, so point to LR position in ctx
+                LDR      R2,[R0,#20]              ; Capture LR
+                STR      R2,[R1],#4
+                LDR      R2,[R0,#24]              ; Capture PC
+                STR      R2,[R1],#4
+                LDR      R2,[R0,#28]              ; Capture xPSR
+                STR      R2,[R1],#4
+                ; Adjust stack pointer to its original value and capture it
+                MOV      R3,R0
+                TST      LR,#0x10                 ; Check for if FP context was saved  
+                ITE      EQ
+                ADDEQ    R3,#0x68
+                ADDNE    R3,#0x20
+                TST      R2,#0x200                ; Check for if STK was aligned by checking bit-9 in xPSR
+                ITE      EQ
+                ADDEQ    R3,#0x0                  
+                ADDNE    R3,#0x4                  ; If set, add 4 to the value because the SP was padded to ensure 8-byte alignment
+                MOV      R4,R1
+                SUB      R4,#0x10                 ; Set the location of SP
+                STR      R3,[R4]                  ; Capture the adjusted SP
+                MRS      R2,PSP                   ; Get PSP           
+                STR      R2,[R1],#4
+                MRS      R2,MSP                   ; Get MSP           
+                STR      R2,[R1],#4
+                LDR      R0,=CFSR_ADDR            ; Capture CFSR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=HFSR_ADDR            ; Capture HFSR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=DFSR_ADDR            ; Capture DFSR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=AFSR_ADDR            ; Capture AFSR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=SHCSR_ADDR           ; Capture SHCSR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=MMFAR_ADDR           ; Capture MMFAR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R0,=BFAR_ADDR            ; Capture BFAR
+                LDR      R2,[R0]
+                STR      R2,[R1],#4
+                LDR      R2,=osRtxInfo+I_T_CB_OFS ; Load address of osRtxInfo.error_handler_callback
+                LDR      R3,[R2]                  ; Load the address of error_handler_callback                
+                CMP      R3,#0
+                BNE      ErrorHandler_CB                            
+                B        .
+ErrorHandler_CB MOV      R0, R12
+                LDR      R1, =osRtxFaultContext
+                LDR      R2, =osRtxInfo
+                BLX      R3  
+                B        .                        ; Just in case we come back here                 
+                ENDP
 
 
 SVC_Handler     PROC

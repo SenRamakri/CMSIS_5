@@ -339,10 +339,52 @@ typedef struct {
     osRtxMpInfo_t        *memory_pool;  ///< Memory Pool Control Blocks
     osRtxMpInfo_t      *message_queue;  ///< Message Queue Control Blocks
   } mpi;
+  osErrorHandlerCallback_t error_handler_callback;  ///< OS Error callback
 } osRtxInfo_t;
  
 extern osRtxInfo_t osRtxInfo;           ///< OS Runtime Information
- 
+
+//  ==== OS Fault Info definitions ====
+
+//WARNING: DO NOT CHANGE THIS STRUCT WITHOUT MAKING CORRESPONDING CHANGES irq_cmXX.S files.
+typedef struct {
+  uint32_t R0;
+  uint32_t R1;
+  uint32_t R2;
+  uint32_t R3;
+  uint32_t R4;
+  uint32_t R5;
+  uint32_t R6;
+  uint32_t R7;
+  uint32_t R8;
+  uint32_t R9;
+  uint32_t R10;
+  uint32_t R11;
+  uint32_t R12;
+  uint32_t SP;
+  uint32_t LR;
+  uint32_t PC;
+  uint32_t xPSR;
+  uint32_t PSP;
+  uint32_t MSP;
+  uint32_t CFSR; //This is the combined register for UFSR, BFSR, MMFSR
+  uint32_t HFSR;
+  uint32_t DFSR;
+  uint32_t AFSR;
+  uint32_t SHCSR;
+  uint32_t MMFAR;
+  uint32_t BFAR;
+} osRtxFaultContext_t;
+
+/// OS Fault type definitions
+//WARNING: DO NOT CHANGE THESE VALUES WITHOUT MAKING CORRESPONDING CHANGES irq_cmXX.S files.
+#define osRtxFaultTypeHardFault       (0x10) //Keep some gap between values for any future insertion/expansion
+#define osRtxFaultTypeMemManageFault  (0x20)
+#define osRtxFaultTypeBusFault        (0x30)
+#define osRtxFaultTypeUsageFault      (0x40)
+#define osRtxFaultTypeDebugMonitor    (0x50)
+
+extern osRtxFaultContext_t osRtxFaultContext;           ///< OS Fault/Exception register Context
  
 //  ==== OS API definitions ====
  

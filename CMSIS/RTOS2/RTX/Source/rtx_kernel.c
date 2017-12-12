@@ -31,6 +31,8 @@ osRtxInfo_t osRtxInfo __attribute__((section(".data.os"))) =
 //lint -e{785} "Initialize only OS ID, OS Version and Kernel State"
 { .os_id = osRtxKernelId, .version = osRtxVersionKernel, .kernel.state = osRtxKernelInactive };
 
+// OS Fault Context Info
+osRtxFaultContext_t osRtxFaultContext;
 
 //  ==== Helper functions ====
 
@@ -80,6 +82,8 @@ static osStatus_t svcRtxKernelInitialize (void) {
     return osError;
   }
 
+  // Initialize osRtxFaultContext
+  memset(&osRtxFaultContext, 0, sizeof(osRtxFaultContext_t)); 
   if (osRtxConfig.thread_stack_size < (64U + 8U)) {
     EvrRtxKernelError(osRtxErrorInvalidThreadStack);
     //lint -e{904} "Return statement before end of function" [MISRA Note 1]
@@ -510,6 +514,14 @@ static uint32_t svcRtxKernelGetSysTimerFreq (void) {
   return freq;
 }
 
+/// Set the Exception handler callback
+bool svcRtxKernelRegisterErrorHandlerCallback(osErrorHandlerCallback_t error_handler_callback) {
+  //Set the value even if its a NULL, as we may want to unregister the handler
+  osRtxInfo.error_handler_callback = error_handler_callback;
+    
+  return true;
+}
+
 //  Service Calls definitions
 //lint ++flb "Library Begin" [MISRA Note 11]
 SVC0_0 (KernelInitialize,       osStatus_t)
@@ -525,6 +537,7 @@ SVC0_0 (KernelGetTickCount,     uint32_t)
 SVC0_0 (KernelGetTickFreq,      uint32_t)
 SVC0_0 (KernelGetSysTimerCount, uint32_t)
 SVC0_0 (KernelGetSysTimerFreq,  uint32_t)
+SVC0_1M(KernelRegisterErrorHandlerCallback, bool, osErrorHandlerCallback_t)
 //lint --flb "Library End"
 
 
@@ -696,4 +709,13 @@ uint32_t osKernelGetSysTimerFreq (void) {
     freq =  __svcKernelGetSysTimerFreq();
   }
   return freq;
+}
+
+/// Register error handler callback
+bool       osKernelRegisterErrorHandlerCallback(osErrorHandlerCallback_t error_handler_callback) {
+  EvrRtxRegisterErrorHandlerCallback((uint32_t)error_handler_callback);
+  if (IS_IRQ_MODE() || IS_IRQ_MASKED()) {
+    return osErrorISR;
+  }
+  return __svcKernelRegisterErrorHandlerCallback(error_handler_callback);
 }

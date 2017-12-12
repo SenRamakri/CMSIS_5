@@ -24,9 +24,10 @@
 ; */
 
 
-I_T_RUN_OFS     EQU      20                     ; osRtxInfo.thread.run offset
-TCB_SP_OFS      EQU      56                     ; TCB.SP offset
-
+I_T_RUN_OFS                     EQU      20                     ; osRtxInfo.thread.run offset
+I_T_CB_OFS                      EQU      164                    ; osRtxInfo.error_handler_callback offset
+TCB_SP_OFS                      EQU      56                     ; TCB.SP offset
+FAULT_TYPE_HARD_FAULT           EQU      0x10
 
                 PRESERVE8
                 THUMB
@@ -38,6 +39,94 @@ irqRtxLib       DCB      0                      ; Non weak library reference
 
 
                 AREA     |.text|, CODE, READONLY
+
+HardFault_Handler PROC
+                  EXPORT   HardFault_Handler
+                  B        Fault_Handler
+                  ENDP                
+
+Fault_Handler   PROC
+                EXPORT   Fault_Handler
+                IMPORT   osRtxInfo
+                IMPORT   osRtxFaultContext
+                
+                MRS      R0,MSP
+                LDR      R1,=0x4                
+                MOV      R2,LR
+                TST      R2,R1                    ; Check EXC_RETURN for bit 2
+                BEQ      Fault_Handler_Continue
+                MRS      R0,PSP
+
+Fault_Handler_Continue
+                LDR      R1,=osRtxFaultContext     
+                LDR      R2,[R0]                  ; Capture R0
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,[R0,#4]               ; Capture R1
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,[R0,#8]               ; Capture R2
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,[R0,#12]              ; Capture R3
+                STR      R2,[R1]
+                ADDS     R1,#4
+                STMIA    R1!,{R4-R7}              ; Capture R4..R7
+                MOV      R7,R8                    ; Capture R8
+                STR      R7,[R1]                  
+                ADDS     R1,#4
+                MOV      R7,R9                    ; Capture R9
+                STR      R7,[R1]                  
+                ADDS     R1,#4
+                MOV      R7,R10                   ; Capture R10
+                STR      R7,[R1]                  
+                ADDS     R1,#4
+                MOV      R7,R11                   ; Capture R11
+                STR      R7,[R1]                  
+                ADDS     R1,#4
+                LDR      R2,[R0,#16]              ; Capture R12
+                STR      R2,[R1]
+                ADDS     R1,#8                    ; Add 8 here to capture LR next, we will capture SP later
+                LDR      R2,[R0,#20]              ; Capture LR
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,[R0,#24]              ; Capture PC
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,[R0,#28]              ; Capture xPSR
+                STR      R2,[R1]
+                ADDS     R1,#4
+                ; Adjust stack pointer to its original value and capture it
+                MOV      R3,R0
+                ADDS     R3,#0x20                 ; Add 0x20 to get the SP value prior to exception
+                LDR      R6,=0x200
+                TST      R2,R6                    ; Check for if STK was aligned by checking bit-9 in xPSR value
+                BEQ      Fault_Handler_Continue2
+                ADDS     R3,#0x4
+
+Fault_Handler_Continue2
+                MOV      R4,R1
+                SUBS     R4,#0x10                 ; Set the location of SP in ctx
+                STR      R3,[R4]                  ; Capture the adjusted SP
+                MRS      R2,PSP                   ; Get PSP           
+                STR      R2,[R1]
+                ADDS     R1,#4
+                MRS      R2,MSP                   ; Get MSP           
+                STR      R2,[R1]
+                ADDS     R1,#4
+                LDR      R2,=osRtxInfo+I_T_CB_OFS ; Load address of osRtxInfo.error_handler_callback
+                LDR      R3,[R2]                  ; Load the address of error_handler_callback                
+                CMP      R3,#0
+                BNE      ErrorHandler_CB                            
+                B        .
+
+ErrorHandler_CB
+                LDR      R0, =FAULT_TYPE_HARD_FAULT
+                LDR      R1, =osRtxFaultContext
+                LDR      R2, =osRtxInfo
+                BLX      R3 
+                B        .                         ; Just in case we come back here                
+                ENDP
 
 
 SVC_Handler     PROC
